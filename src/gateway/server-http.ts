@@ -34,6 +34,7 @@ import {
 import { handleOpenAiHttpRequest } from "./openai-http.js";
 import { handleOpenResponsesHttpRequest } from "./openresponses-http.js";
 import { handleToolsInvokeHttpRequest } from "./tools-invoke-http.js";
+import type { RateLimiter } from "./rate-limiter.js";
 
 type SubsystemLogger = ReturnType<typeof createSubsystemLogger>;
 
@@ -58,6 +59,84 @@ function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.end(JSON.stringify(body));
+}
+
+/**
+ * Extract client IP address, considering trusted proxies and X-Forwarded-For header
+ *
+ * @param req - Incoming HTTP request
+ * @param trustedProxies - List of trusted proxy IPs
+ * @returns Client IP address
+ */
+function getClientIp(req: IncomingMessage, trustedProxies: string[]): string {
+  // If trusted proxies are configured, check X-Forwarded-For header
+  if (trustedProxies.length > 0) {
+    const forwardedFor = req.headers["x-forwarded-for"];
+    if (forwardedFor) {
+      // X-Forwarded-For can be a comma-separated list
+      const ips = (Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor)
+        .split(",")
+        .map((ip) => ip.trim());
+
+      // Return the first IP that's not a trusted proxy
+      for (const ip of ips) {
+        if (!trustedProxies.includes(ip)) {
+          return ip;
+        }
+      }
+    }
+  }
+
+  // Fall back to socket remote address
+  return req.socket.remoteAddress ?? "unknown";
+}
+
+/**
+ * Set comprehensive security headers on HTTP responses
+ *
+ * These headers provide defense-in-depth security protections:
+ * - HSTS: Forces HTTPS connections
+ * - X-Content-Type-Options: Prevents MIME sniffing
+ * - X-Frame-Options: Prevents clickjacking
+ * - X-XSS-Protection: Enables browser XSS filters
+ * - Referrer-Policy: Controls referrer information
+ * - Permissions-Policy: Restricts browser features
+ * - CSP: Content Security Policy
+ *
+ * BACKWARD COMPATIBLE: Uses 'unsafe-inline' in CSP to maintain compatibility with existing UI
+ *
+ * @param res - HTTP response object
+ */
+function setSecurityHeaders(res: ServerResponse): void {
+  // Strict Transport Security (HSTS) - only set if using HTTPS
+  // Note: HSTS should only be set over HTTPS connections
+  // In production with HTTPS, uncomment this:
+  // res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+
+  // Prevent MIME type sniffing
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+
+  // Prevent clickjacking
+  res.setHeader('X-Frame-Options', 'DENY');
+
+  // Enable browser XSS protection
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+
+  // Control referrer information
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+
+  // Restrict browser features (cameras, microphones, geolocation)
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+
+  // Content Security Policy
+  // Note: Uses 'unsafe-inline' to maintain backward compatibility with existing UI
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline'; " +
+    "style-src 'self' 'unsafe-inline'; " +
+    "frame-ancestors 'none'"
+  );
 }
 
 export type HooksRequestHandler = (req: IncomingMessage, res: ServerResponse) => Promise<boolean>;
@@ -218,6 +297,7 @@ export function createGatewayHttpServer(opts: {
   handlePluginRequest?: HooksRequestHandler;
   resolvedAuth: import("./auth.js").ResolvedGatewayAuth;
   tlsOptions?: TlsOptions;
+  rateLimiter?: RateLimiter | null; // OPTIONAL: Rate limiter instance (disabled if null/undefined)
 }): HttpServer {
   const {
     canvasHost,
@@ -230,6 +310,7 @@ export function createGatewayHttpServer(opts: {
     handleHooksRequest,
     handlePluginRequest,
     resolvedAuth,
+    rateLimiter,
   } = opts;
   const httpServer: HttpServer = opts.tlsOptions
     ? createHttpsServer(opts.tlsOptions, (req, res) => {
@@ -248,6 +329,29 @@ export function createGatewayHttpServer(opts: {
     try {
       const configSnapshot = loadConfig();
       const trustedProxies = configSnapshot.gateway?.trustedProxies ?? [];
+
+      // OPTIONAL: Rate limiting (only applies if rateLimiter is configured)
+      if (rateLimiter) {
+        const clientIp = getClientIp(req, trustedProxies);
+        const allowed = rateLimiter.tryConsume(clientIp);
+
+        if (!allowed) {
+          res.statusCode = 429;
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          res.setHeader("Retry-After", "60");
+          res.end(
+            JSON.stringify({
+              error: "Too Many Requests",
+              message: "Rate limit exceeded. Please try again later.",
+            }),
+          );
+          return;
+        }
+      }
+
+      // Set comprehensive security headers on all responses
+      setSecurityHeaders(res);
+
       if (await handleHooksRequest(req, res)) {
         return;
       }

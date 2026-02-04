@@ -3,6 +3,8 @@ import { timingSafeEqual } from "node:crypto";
 import type { GatewayAuthConfig, GatewayTailscaleMode } from "../config/config.js";
 import { readTailscaleWhoisIdentity, type TailscaleWhoisIdentity } from "../infra/tailscale.js";
 import { isTrustedProxyAddress, parseForwardedForClientIp, resolveGatewayClientIp } from "./net.js";
+import { verifyTokenFromEnv } from "./hmac-auth.js";
+
 export type ResolvedGatewayAuthMode = "token" | "password";
 
 export type ResolvedGatewayAuth = {
@@ -14,7 +16,7 @@ export type ResolvedGatewayAuth = {
 
 export type GatewayAuthResult = {
   ok: boolean;
-  method?: "token" | "password" | "tailscale" | "device-token";
+  method?: "token" | "password" | "tailscale" | "device-token" | "hmac"; // Added "hmac" for HMAC token auth
   user?: string;
   reason?: string;
 };
@@ -258,6 +260,21 @@ export async function authorizeGatewayConnect(params: {
         user: tailscaleCheck.user.login,
       };
     }
+  }
+
+  // OPTIONAL: HMAC token authentication (additive, backward compatible)
+  // Only runs if OPENCLAW_HMAC_SECRET is configured
+  if (connectAuth?.token) {
+    const hmacPayload = verifyTokenFromEnv(connectAuth.token);
+    if (hmacPayload) {
+      // Valid HMAC token found - authentication successful
+      return {
+        ok: true,
+        method: "hmac",
+        user: (hmacPayload.user as string) ?? "hmac-authenticated",
+      };
+    }
+    // If HMAC verification fails, fall through to regular token auth
   }
 
   if (auth.mode === "token") {
