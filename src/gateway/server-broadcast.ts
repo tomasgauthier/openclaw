@@ -43,6 +43,11 @@ export function createGatewayBroadcaster(params: { clients: Set<GatewayWsClient>
     },
     targetConnIds?: ReadonlySet<string>,
   ) => {
+    // P1: Skip serialization + logging when no clients are connected
+    if (params.clients.size === 0) {
+      ++seq;
+      return;
+    }
     const isTargeted = Boolean(targetConnIds);
     const eventSeq = isTargeted ? undefined : ++seq;
     const frame = JSON.stringify({

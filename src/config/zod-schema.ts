@@ -508,6 +508,48 @@ export const OpenClawSchema = z
       .strict()
       .optional(),
     memory: MemorySchema,
+    mind: z
+      .object({
+        enabled: z.boolean().optional(),
+        dreamCron: z.string().optional(),
+        decayFactor: z.number().min(0).max(1).optional(),
+        minRelevance: z.number().min(0).max(1).optional(),
+        reactivationBoost: z.number().min(0).max(1).optional(),
+        stressDetection: z
+          .union([z.literal("regex"), z.literal("semantic"), z.literal("off")])
+          .optional(),
+      })
+      .strict()
+      .optional(),
+    costCeiling: z
+      .object({
+        /** Whether daily cost ceiling enforcement is enabled. Default: true. */
+        enabled: z.boolean().optional(),
+        /** Daily ceiling in USD. Default: 10. */
+        dailyLimitUsd: z.number().min(0).optional(),
+      })
+      .strict()
+      .optional(),
+    modelRouter: z
+      .object({
+        /** Whether smart model routing is enabled. Default: false. */
+        enabled: z.boolean().optional(),
+        /** Cheaper model for short messages (e.g. "anthropic/claude-haiku-3-5"). */
+        cheapModel: z.string().optional(),
+        /** Character count below which a message is "simple". Default: 120. */
+        complexityThreshold: z.number().int().min(1).optional(),
+        /** Pattern-based routes: [{patterns: ["regex"], model: "provider/model"}]. */
+        routes: z
+          .array(
+            z.object({
+              patterns: z.array(z.string()),
+              model: z.string(),
+            }),
+          )
+          .optional(),
+      })
+      .strict()
+      .optional(),
     skills: z
       .object({
         allowBundled: z.array(z.string()).optional(),

@@ -9,6 +9,7 @@ import {
   resolveImplicitCopilotProvider,
   resolveImplicitProviders,
 } from "./models-config.providers.js";
+import { isEncrypted, encrypt, decrypt, deriveKeyFromEnv } from "../security/encryption.js";
 
 type ModelsConfig = NonNullable<OpenClawConfig["models"]>;
 
@@ -72,10 +73,28 @@ function mergeProviders(params: {
   return out;
 }
 
+function getModelsEncKey(): Buffer | null {
+  const envVal = process.env.OPENCLAW_ENCRYPTION_KEY?.trim();
+  if (!envVal) {
+    return null;
+  }
+  try {
+    return deriveKeyFromEnv(envVal);
+  } catch {
+    return null;
+  }
+}
+
 async function readJson(pathname: string): Promise<unknown> {
   try {
     const raw = await fs.readFile(pathname, "utf8");
-    return JSON.parse(raw) as unknown;
+    const parsed = JSON.parse(raw) as unknown;
+    // S1: Auto-decrypt models.json if encrypted
+    const key = getModelsEncKey();
+    if (key && isEncrypted(parsed)) {
+      return JSON.parse(decrypt(parsed, key)) as unknown;
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -142,6 +161,13 @@ export async function ensureOpenClawModelsJson(
   }
 
   await fs.mkdir(agentDir, { recursive: true, mode: 0o700 });
-  await fs.writeFile(targetPath, next, { mode: 0o600 });
+  // S1: Encrypt models.json when encryption key is configured
+  const encKey = getModelsEncKey();
+  if (encKey) {
+    const encrypted = encrypt(next, encKey);
+    await fs.writeFile(targetPath, JSON.stringify(encrypted, null, 2), { mode: 0o600 });
+  } else {
+    await fs.writeFile(targetPath, next, { mode: 0o600 });
+  }
   return { agentDir, wrote: true };
 }

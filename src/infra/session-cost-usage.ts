@@ -11,6 +11,7 @@ import {
 } from "../config/sessions/paths.js";
 import { countToolResults, extractToolCallNames } from "../utils/transcript-tools.js";
 import { estimateUsageCost, resolveModelCostConfig } from "../utils/usage-format.js";
+import { createSessionReadStream } from "../security/session-encryption.js";
 
 type CostBreakdown = {
   total?: number;
@@ -312,7 +313,9 @@ async function scanTranscriptFile(params: {
   config?: OpenClawConfig;
   onEntry: (entry: ParsedTranscriptEntry) => void;
 }): Promise<void> {
-  const fileStream = fs.createReadStream(params.filePath, { encoding: "utf-8" });
+  // S6: Use encryption-aware stream reader for encrypted session files
+  const fileStream = createSessionReadStream(params.filePath) ??
+    fs.createReadStream(params.filePath, { encoding: "utf-8" });
   const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
 
   for await (const line of rl) {

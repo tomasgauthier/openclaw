@@ -3,4 +3,6 @@ export const enum CommandLane {
   Cron = "cron",
   Subagent = "subagent",
   Nested = "nested",
+  /** P2: Dedicated lane for tool execution with configurable concurrency. */
+  Tool = "tool",
 }

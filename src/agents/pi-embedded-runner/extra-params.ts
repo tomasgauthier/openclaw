@@ -61,7 +61,10 @@ function resolveCacheRetention(
   if (legacy === "1h") {
     return "long";
   }
-  return undefined;
+
+  // C4: Default to "short" cache retention for Anthropic to reduce costs.
+  // System prompt and recent conversation turns are cached across requests.
+  return "short";
 }
 
 function createStreamFnWithExtraParams(
@@ -69,17 +72,16 @@ function createStreamFnWithExtraParams(
   extraParams: Record<string, unknown> | undefined,
   provider: string,
 ): StreamFn | undefined {
-  if (!extraParams || Object.keys(extraParams).length === 0) {
-    return undefined;
-  }
-
   const streamParams: CacheRetentionStreamOptions = {};
-  if (typeof extraParams.temperature === "number") {
-    streamParams.temperature = extraParams.temperature;
+  if (extraParams) {
+    if (typeof extraParams.temperature === "number") {
+      streamParams.temperature = extraParams.temperature;
+    }
+    if (typeof extraParams.maxTokens === "number") {
+      streamParams.maxTokens = extraParams.maxTokens;
+    }
   }
-  if (typeof extraParams.maxTokens === "number") {
-    streamParams.maxTokens = extraParams.maxTokens;
-  }
+  // C4: Always check cache retention (defaults to "short" for Anthropic)
   const cacheRetention = resolveCacheRetention(extraParams, provider);
   if (cacheRetention) {
     streamParams.cacheRetention = cacheRetention;

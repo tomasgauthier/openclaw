@@ -214,6 +214,8 @@ export function buildAgentSystemPrompt(params: {
     channel: string;
   };
   memoryCitationsMode?: MemoryCitationsMode;
+  /** Spiritual Biology prompt lines (from mind/identity.ts buildMindPromptSection). */
+  mindPromptLines?: string[];
 }) {
   const coreToolSummaries: Record<string, string> = {
     read: "Read file contents",
@@ -410,7 +412,16 @@ export function buildAgentSystemPrompt(params: {
     "Keep narration brief and value-dense; avoid repeating obvious steps.",
     "Use plain human language for narration unless in a technical context.",
     "",
+    "## Cost Awareness",
+    "Minimize token usage without sacrificing quality:",
+    "- Prefer concise replies; avoid restating what the user already knows.",
+    "- Avoid echoing full files back; use targeted excerpts.",
+    "- When a task is simple, respond directly instead of multi-step tool chains.",
+    "- Do not pad replies with boilerplate disclaimers or unnecessary summaries.",
+    "",
     ...safetySection,
+    // Spiritual Biology (M11: inject learnings into system prompt)
+    ...(!isMinimal && params.mindPromptLines ? params.mindPromptLines : []),
     "## OpenClaw CLI Quick Reference",
     "OpenClaw is controlled via subcommands. Do not invent commands.",
     "To manage the Gateway daemon service (start/stop/restart):",

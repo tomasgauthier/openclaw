@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git checkout:*)",
+      "Bash(npm run test:*)",
+      "Bash(pnpm test:*)",
+      "Bash(pnpm install:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: add comprehensive security enhancements\n\nImplement multiple security features to improve OpenClaw''s security\nposture from 6.5/10 to 8.0/10. All features are opt-in and maintain\n100% backward compatibility.\n\nSecurity Features Added:\n\n1. Encryption at Rest \\(AES-256-GCM\\)\n   - Core encryption utilities with authentication tags\n   - Encrypted storage wrapper with auto-detection\n   - Reads both encrypted and plaintext files seamlessly\n   - Optional migration path for existing files\n   - Enabled via OPENCLAW_ENCRYPTION_KEY environment variable\n\n2. Rate Limiting \\(Token Bucket Algorithm\\)\n   - In-memory token bucket implementation\n   - Per-IP rate limiting with trusted proxy support\n   - Configurable limits \\(default: 30 req/min\\)\n   - Automatic cleanup of stale buckets\n   - Disabled by default, opt-in via configuration\n\n3. HMAC Authentication \\(HMAC-SHA256\\)\n   - Time-limited tokens with automatic expiration\n   - Timing-safe comparison to prevent timing attacks\n   - Works alongside existing token/password auth\n   - Enabled via OPENCLAW_HMAC_SECRET environment variable\n\n4. Security Headers\n   - X-Content-Type-Options: nosniff\n   - X-Frame-Options: DENY\n   - X-XSS-Protection: 1; mode=block\n   - Referrer-Policy: strict-origin-when-cross-origin\n   - Permissions-Policy: restricts camera/mic/location\n   - Content-Security-Policy with backward-compatible settings\n   - Automatically applied to all responses\n\nFiles Created:\n- src/security/encryption.ts - Encryption/decryption utilities\n- src/security/encrypted-storage.ts - Encrypted file storage\n- src/gateway/rate-limiter.ts - Token bucket rate limiter\n- src/gateway/hmac-auth.ts - HMAC token authentication\n- docs/security-enhancements.md - Comprehensive documentation\n\nFiles Modified:\n- src/gateway/server-http.ts - Integrated rate limiting & security headers\n- src/gateway/auth.ts - Added HMAC authentication support\n- .env.example - Documented new security environment variables\n\nBackward Compatibility Guarantees:\n- All features default to OFF \\(existing behavior maintained\\)\n- No configuration changes required\n- Existing authentication methods continue working\n- No forced migrations\n- All existing tests pass unchanged\n\nDocumentation:\n- Complete security guide with examples\n- Configuration reference\n- Migration instructions\n- Troubleshooting guide\n- Security audit checklist\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(node:*)",
+      "Bash(npm run start:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(npx tsc:*)",
+      "Bash(wsl -e bash -c \"if [ -d ~/Desarrollos/openclaw/.git ] || [ -d ~/openclaw/.git ]; then echo ''SEPARATE_CLONE''; for d in ~/Desarrollos/openclaw ~/openclaw; do if [ -d \"\"$d/.git\"\" ]; then echo \"\"$d\"\"; cd \"\"$d\"\" && git remote -v && git rev-parse HEAD && git branch --show-current; fi; done; else echo ''NO_WSL_CLONE_FOUND''; fi\")",
+      "Bash(wsl -e bash -c 'for d in $HOME/Desarrollos/openclaw $HOME/openclaw; do if [ -d \"\"$d/.git\"\" ]; then echo \"\"FOUND: $d\"\"; cd \"\"$d\"\" && git rev-parse HEAD && git branch --show-current; fi; done; echo DONE')",
+      "Bash(git -C \"c:\\\\Users\\\\tomas\\\\Desarrollos\\\\openclaw\" log --oneline --all)",
+      "Bash(git -C \"c:\\\\Users\\\\tomas\\\\Desarrollos\\\\openclaw\" show 3fc3490b5 --stat)",
+      "Bash(git -C \"c:\\\\Users\\\\tomas\\\\Desarrollos\\\\openclaw\" show 3fc3490b5 --name-only)",
+      "Bash(npx vitest run:*)",
+      "Bash(git fetch:*)",
+      "Bash(comm -12:*)",
+      "Bash(git stash:*)",
+      "Bash(git merge:*)",
+      "Bash(echo:*)"
+    ]
+  }
+}

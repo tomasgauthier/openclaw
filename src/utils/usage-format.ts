@@ -61,6 +61,46 @@ export function resolveModelCostConfig(params: {
 const toNumber = (value: number | undefined): number =>
   typeof value === "number" && Number.isFinite(value) ? value : 0;
 
+/** C10: Cost estimate for a hypothetical workload across different models. */
+export type ModelCostEstimate = {
+  provider: string;
+  model: string;
+  cost: ModelCostConfig;
+  estimatedCostUsd: number;
+};
+
+/**
+ * C10: Compare costs across all configured providers/models for a given workload.
+ * Returns sorted array from cheapest to most expensive.
+ */
+export function compareProviderCosts(params: {
+  usage: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
+  config?: OpenClawConfig;
+}): ModelCostEstimate[] {
+  const providers = params.config?.models?.providers ?? {};
+  const results: ModelCostEstimate[] = [];
+
+  for (const [providerName, provider] of Object.entries(providers)) {
+    for (const model of provider.models ?? []) {
+      const cost = model.cost;
+      if (!cost || !model.id) {
+        continue;
+      }
+      const estimated = estimateUsageCost({ usage: params.usage, cost });
+      if (estimated !== undefined) {
+        results.push({
+          provider: providerName,
+          model: model.id,
+          cost,
+          estimatedCostUsd: estimated,
+        });
+      }
+    }
+  }
+
+  return results.sort((a, b) => a.estimatedCostUsd - b.estimatedCostUsd);
+}
+
 export function estimateUsageCost(params: {
   usage?: NormalizedUsage | UsageTotals | null;
   cost?: ModelCostConfig;

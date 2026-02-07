@@ -18,6 +18,9 @@ import { createSessionsSendTool } from "./tools/sessions-send-tool.js";
 import { createSessionsSpawnTool } from "./tools/sessions-spawn-tool.js";
 import { createTtsTool } from "./tools/tts-tool.js";
 import { createWebFetchTool, createWebSearchTool } from "./tools/web-tools.js";
+import { createMindTools } from "../mind/tools.js";
+import { getMindStore } from "../mind/manager.js";
+import { resolveStateDir } from "../config/paths.js";
 
 export function createOpenClawTools(options?: {
   sandboxBrowserBridgeUrl?: string;
@@ -147,6 +150,24 @@ export function createOpenClawTools(options?: {
     ...(webFetchTool ? [webFetchTool] : []),
     ...(imageTool ? [imageTool] : []),
   ];
+
+  // Spiritual Biology / Mind tools (M1-M16)
+  const mindEnabled = options?.config?.mind?.enabled !== false;
+  if (mindEnabled) {
+    try {
+      const agentId = resolveSessionAgentId({
+        sessionKey: options?.agentSessionKey,
+        config: options?.config,
+      });
+      const mindStore = getMindStore({
+        agentId,
+        dataDir: resolveStateDir(),
+      });
+      tools.push(...createMindTools(mindStore));
+    } catch {
+      // Mind system initialization failed — continue without it
+    }
+  }
 
   const pluginTools = resolvePluginTools({
     context: {

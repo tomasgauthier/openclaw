@@ -13,6 +13,7 @@ import type {
 } from "./types.gateway.js";
 import type { HooksConfig } from "./types.hooks.js";
 import type { MemoryConfig } from "./types.memory.js";
+import type { MindConfig } from "./types.mind.js";
 import type {
   AudioConfig,
   BroadcastConfig,
@@ -97,6 +98,17 @@ export type OpenClawConfig = {
   talk?: TalkConfig;
   gateway?: GatewayConfig;
   memory?: MemoryConfig;
+  mind?: MindConfig;
+  costCeiling?: {
+    enabled?: boolean;
+    dailyLimitUsd?: number;
+  };
+  modelRouter?: {
+    enabled?: boolean;
+    cheapModel?: string;
+    complexityThreshold?: number;
+    routes?: Array<{ patterns: string[]; model: string }>;
+  };
 };
 
 export type ConfigValidationIssue = {

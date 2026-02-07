@@ -22,6 +22,7 @@ import {
 } from "./server-chat.js";
 import { MAX_PAYLOAD_BYTES } from "./server-constants.js";
 import { attachGatewayUpgradeHandler, createGatewayHttpServer } from "./server-http.js";
+import { createRateLimiter } from "./rate-limiter.js";
 import { createGatewayHooksRequestHandler } from "./server/hooks.js";
 import { listenGatewayHttpServer } from "./server/http-listen.js";
 import { createGatewayPluginRequestHandler } from "./server/plugins-http.js";
@@ -123,6 +124,10 @@ export async function createGatewayRuntimeState(params: {
     log: params.logPlugins,
   });
 
+  // Rate limiting: enabled by default, disable with OPENCLAW_RATE_LIMIT_ENABLED=false
+  const rateLimitEnabled = process.env.OPENCLAW_RATE_LIMIT_ENABLED !== "false";
+  const rateLimiter = createRateLimiter(rateLimitEnabled);
+
   const bindHosts = await resolveGatewayListenHosts(params.bindHost);
   const httpServers: HttpServer[] = [];
   const httpBindHosts: string[] = [];
@@ -140,6 +145,7 @@ export async function createGatewayRuntimeState(params: {
       handlePluginRequest,
       resolvedAuth: params.resolvedAuth,
       tlsOptions: params.gatewayTls?.enabled ? params.gatewayTls.tlsOptions : undefined,
+      rateLimiter,
     });
     try {
       await listenGatewayHttpServer({

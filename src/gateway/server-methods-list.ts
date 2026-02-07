@@ -8,6 +8,8 @@ const BASE_METHODS = [
   "status",
   "usage.status",
   "usage.cost",
+  "usage.ceiling",
+  "usage.compare",
   "tts.status",
   "tts.providers",
   "tts.enable",

@@ -7,6 +7,7 @@ import { clearActiveProgressLine } from "../terminal/progress-line.js";
 import { getConsoleSettings, shouldLogSubsystemToConsole } from "./console.js";
 import { type LogLevel, levelToMinLevel } from "./levels.js";
 import { getChildLogger } from "./logger.js";
+import { redactSensitiveText } from "./redact.js";
 import { loggingState } from "./state.js";
 
 type LogObj = { date?: Date } & Record<string, unknown>;
@@ -219,10 +220,12 @@ function logToFile(
   if (typeof method !== "function") {
     return;
   }
+  // S10: Redact sensitive data from persistent log files
+  const safeMessage = redactSensitiveText(message);
   if (meta && Object.keys(meta).length > 0) {
-    method.call(fileLogger, meta, message);
+    method.call(fileLogger, meta, safeMessage);
   } else {
-    method.call(fileLogger, message);
+    method.call(fileLogger, safeMessage);
   }
 }
 

@@ -20,6 +20,8 @@ import {
   loadSessionUsageTimeSeries,
   discoverAllSessions,
 } from "../../infra/session-cost-usage.js";
+import { getDailyCostStatus } from "../../security/cost-ceiling.js";
+import { compareProviderCosts } from "../../utils/usage-format.js";
 import { parseAgentSessionKey } from "../../routing/session-key.js";
 import {
   ErrorCodes,
@@ -239,6 +241,23 @@ export const usageHandlers: GatewayRequestHandlers = {
     });
     const summary = await loadCostUsageSummaryCached({ startMs, endMs, config });
     respond(true, summary, undefined);
+  },
+  // C9: Real-time daily cost ceiling status
+  "usage.ceiling": async ({ respond }) => {
+    respond(true, getDailyCostStatus(), undefined);
+  },
+  // C10: Compare costs across configured providers for a given workload
+  "usage.compare": async ({ respond, params }) => {
+    const config = loadConfig();
+    const input = typeof params?.input === "number" ? params.input : 1000;
+    const output = typeof params?.output === "number" ? params.output : 500;
+    const cacheRead = typeof params?.cacheRead === "number" ? params.cacheRead : 0;
+    const cacheWrite = typeof params?.cacheWrite === "number" ? params.cacheWrite : 0;
+    const estimates = compareProviderCosts({
+      usage: { input, output, cacheRead, cacheWrite },
+      config,
+    });
+    respond(true, { estimates }, undefined);
   },
   "sessions.usage": async ({ respond, params }) => {
     if (!validateSessionsUsageParams(params)) {

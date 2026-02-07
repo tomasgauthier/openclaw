@@ -77,6 +77,10 @@ import {
   refreshGatewayHealthSnapshot,
 } from "./server/health-state.js";
 import { loadGatewayTlsRuntime } from "./server/tls.js";
+import { getAuditLog } from "../security/audit-log.js";
+import { initCostCeiling } from "../security/cost-ceiling.js";
+import { initModelRouter } from "../agents/model-router.js";
+import { STATE_DIR } from "../config/paths.js";
 
 export { __resetModelCatalogCacheForTest } from "./server-model-catalog.js";
 
@@ -224,6 +228,23 @@ export async function startGatewayServer(
   }
   setGatewaySigusr1RestartPolicy({ allowExternal: cfgAtStart.commands?.restart === true });
   initSubagentRegistry();
+
+  // S4: Initialize runtime audit log (SQLite-backed)
+  getAuditLog(path.join(STATE_DIR, "security"));
+
+  // C5: Initialize daily cost ceiling
+  initCostCeiling(0, cfgAtStart.costCeiling?.dailyLimitUsd, cfgAtStart.costCeiling?.enabled);
+
+  // C1: Initialize smart model router (if configured)
+  if (cfgAtStart.modelRouter?.enabled !== false && cfgAtStart.modelRouter) {
+    initModelRouter({
+      defaultModel: "default",
+      cheapModel: cfgAtStart.modelRouter.cheapModel ?? "claude-haiku",
+      complexityThreshold: cfgAtStart.modelRouter.complexityThreshold ?? 500,
+      routes: cfgAtStart.modelRouter.routes ?? [],
+    });
+  }
+
   const defaultAgentId = resolveDefaultAgentId(cfgAtStart);
   const defaultWorkspaceDir = resolveAgentWorkspaceDir(cfgAtStart, defaultAgentId);
   const baseMethods = listGatewayMethods();

@@ -1,3 +1,4 @@
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import type { TlsOptions } from "node:tls";
 import type { WebSocketServer } from "ws";
 import {
@@ -44,6 +45,8 @@ import { resolveGatewayClientIp } from "./net.js";
 import { handleOpenAiHttpRequest } from "./openai-http.js";
 import { handleOpenResponsesHttpRequest } from "./openresponses-http.js";
 import { handleToolsInvokeHttpRequest } from "./tools-invoke-http.js";
+import type { RateLimiter } from "./rate-limiter.js";
+import { getAuditLog } from "../security/audit-log.js";
 
 type SubsystemLogger = ReturnType<typeof createSubsystemLogger>;
 
@@ -64,11 +67,92 @@ type HookDispatchers = {
   }) => string;
 };
 
+const RATE_LIMIT_BODY = Buffer.from(
+  JSON.stringify({ error: "Too Many Requests", message: "Rate limit exceeded. Please try again later." }),
+);
+
 function sendJson(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.end(JSON.stringify(body));
 }
+
+/**
+ * Extract client IP address, considering trusted proxies and X-Forwarded-For header
+ */
+function getClientIp(req: IncomingMessage, trustedProxies: string[]): string {
+  if (trustedProxies.length > 0) {
+    const forwardedFor = req.headers["x-forwarded-for"];
+    if (forwardedFor) {
+      const ips = (Array.isArray(forwardedFor) ? forwardedFor[0] : forwardedFor)
+        .split(",")
+        .map((ip) => ip.trim());
+      for (const ip of ips) {
+        if (!trustedProxies.includes(ip)) {
+          return ip;
+        }
+      }
+    }
+  }
+  return req.socket.remoteAddress ?? "unknown";
+}
+
+// ── Per-response CSP nonce (S2) ────────────────────────────────────────
+
+const responseNonces = new WeakMap<ServerResponse, string>();
+
+function generateNonce(): string {
+  return randomBytes(16).toString("base64");
+}
+
+/** Retrieve the CSP nonce assigned to a response (for inline <script> tags). */
+export function getResponseNonce(res: ServerResponse): string | undefined {
+  return responseNonces.get(res);
+}
+
+/**
+ * Set comprehensive security headers on HTTP responses.
+ *
+ * S2: Uses per-request nonce instead of 'unsafe-inline' for script-src.
+ * S9: Blocks cross-origin requests (no Access-Control-Allow-Origin by default).
+ */
+function setSecurityHeaders(res: ServerResponse): void {
+  const nonce = generateNonce();
+  responseNonces.set(res, nonce);
+
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("X-XSS-Protection", "1; mode=block");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  res.setHeader(
+    "Content-Security-Policy",
+    `default-src 'self'; ` +
+    `script-src 'self' 'nonce-${nonce}'; ` +
+    `style-src 'self' 'unsafe-inline'; ` +
+    `frame-ancestors 'none'`,
+  );
+}
+
+/**
+ * Handle CORS preflight and enforce same-origin policy (S9).
+ * Returns true if the request was a preflight OPTIONS that was handled.
+ */
+function handleCors(req: IncomingMessage, res: ServerResponse): boolean {
+  const origin = req.headers.origin;
+  if (!origin) {
+    return false;
+  }
+  if (req.method === "OPTIONS") {
+    res.statusCode = 204;
+    res.setHeader("Content-Length", "0");
+    res.end();
+    return true;
+  }
+  return false;
+}
+
+// ── Canvas host authorization (upstream) ───────────────────────────────
 
 function isCanvasPath(pathname: string): boolean {
   return (
@@ -125,6 +209,7 @@ async function authorizeCanvasRequest(params: {
   return hasAuthorizedWsClientForIp(clients, clientIp);
 }
 
+
 export type HooksRequestHandler = (req: IncomingMessage, res: ServerResponse) => Promise<boolean>;
 
 export function createHooksRequestHandler(
@@ -157,7 +242,11 @@ export function createHooksRequestHandler(
     }
 
     const token = extractHookToken(req);
-    if (!token || token !== hooksConfig.token) {
+    const expected = hooksConfig.token;
+    if (!token || token.length !== expected.length || !timingSafeEqual(Buffer.from(token), Buffer.from(expected))) {
+      getAuditLog()?.log("hook_auth_failure", `path=${url.pathname}`, {
+        ip: req.socket.remoteAddress ?? "unknown",
+      });
       res.statusCode = 401;
       res.setHeader("Content-Type", "text/plain; charset=utf-8");
       res.end("Unauthorized");
@@ -286,6 +375,7 @@ export function createGatewayHttpServer(opts: {
   handlePluginRequest?: HooksRequestHandler;
   resolvedAuth: ResolvedGatewayAuth;
   tlsOptions?: TlsOptions;
+  rateLimiter?: RateLimiter | null; // OPTIONAL: Rate limiter instance (disabled if null/undefined)
 }): HttpServer {
   const {
     canvasHost,
@@ -299,6 +389,7 @@ export function createGatewayHttpServer(opts: {
     handleHooksRequest,
     handlePluginRequest,
     resolvedAuth,
+    rateLimiter,
   } = opts;
   const httpServer: HttpServer = opts.tlsOptions
     ? createHttpsServer(opts.tlsOptions, (req, res) => {
@@ -315,8 +406,32 @@ export function createGatewayHttpServer(opts: {
     }
 
     try {
+      // S9: Handle CORS preflight — blocks cross-origin requests by default
+      if (handleCors(req, res)) {
+        return;
+      }
+
       const configSnapshot = loadConfig();
       const trustedProxies = configSnapshot.gateway?.trustedProxies ?? [];
+
+      // Rate limiting (enabled by default, see S7)
+      if (rateLimiter) {
+        const clientIp = getClientIp(req, trustedProxies);
+        const allowed = rateLimiter.tryConsume(clientIp);
+
+        if (!allowed) {
+          getAuditLog()?.log("rate_limited", `ip=${clientIp}`, { ip: clientIp });
+          res.statusCode = 429;
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          res.setHeader("Retry-After", "60");
+          res.end(RATE_LIMIT_BODY);
+          return;
+        }
+      }
+
+      // Set comprehensive security headers on all responses
+      setSecurityHeaders(res);
+
       if (await handleHooksRequest(req, res)) {
         return;
       }

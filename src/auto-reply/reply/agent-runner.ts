@@ -20,6 +20,8 @@ import {
 } from "../../config/sessions.js";
 import { emitDiagnosticEvent, isDiagnosticsEnabled } from "../../infra/diagnostic-events.js";
 import { defaultRuntime } from "../../runtime.js";
+import { isCostCeilingHit, recordCost } from "../../security/cost-ceiling.js";
+import { getModelRouter } from "../../agents/model-router.js";
 import { estimateUsageCost, resolveModelCostConfig } from "../../utils/usage-format.js";
 import { resolveResponseUsageMode, type VerboseLevel } from "../thinking.js";
 import { runAgentTurnWithFallback } from "./agent-runner-execution.js";
@@ -90,7 +92,7 @@ export async function runReplyAgent(params: {
     sessionStore,
     sessionKey,
     storePath,
-    defaultModel,
+    defaultModel: defaultModelParam,
     agentCfgContextTokens,
     resolvedVerboseLevel,
     isNewSession,
@@ -101,6 +103,24 @@ export async function runReplyAgent(params: {
     shouldInjectGroupIntro,
     typingMode,
   } = params;
+  let defaultModel = defaultModelParam;
+
+  // C5: Check daily cost ceiling before running agent turn
+  if (isCostCeilingHit()) {
+    return {
+      text: "Daily API cost ceiling reached. Please try again tomorrow or raise the limit in config.",
+      parsed: null,
+    } as ReplyPayload;
+  }
+
+  // C1: Smart model routing — route simple messages to cheaper models
+  const modelRouter = getModelRouter();
+  if (modelRouter && commandBody) {
+    const routed = modelRouter.resolve(commandBody);
+    if (routed.reason !== "default") {
+      defaultModel = routed.model;
+    }
+  }
 
   let activeSessionEntry = sessionEntry;
   const activeSessionStore = sessionStore;
@@ -440,6 +460,9 @@ export async function runReplyAgent(params: {
         config: cfg,
       });
       const costUsd = estimateUsageCost({ usage, cost: costConfig });
+      if (costUsd !== undefined) {
+        recordCost(costUsd);
+      }
       emitDiagnosticEvent({
         type: "model.usage",
         sessionKey,
